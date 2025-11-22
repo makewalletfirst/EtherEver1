@@ -35,6 +35,10 @@ jobs:
           echo "Default cmd/geth directory not found, skipping binary specific build."
         fi
 
-    # [수정됨] 테스트 타임아웃을 30분으로 늘리고, -short 옵션으로 긴 테스트는 생략합니다.
+    # [수정됨]
+    # -p 1 : 병렬 처리를 끄고 1개씩 순서대로 테스트 (메모리 부족 방지)
+    # -short : 긴 테스트 건너뛰기
+    # -timeout 30m : 시간 제한 늘리기
+    # -v : 상세 로그 출력
     - name: Run tests
-      run: go test -v -short -timeout 30m ./...
+      run: go test -v -short -p 1 -timeout 30m ./...

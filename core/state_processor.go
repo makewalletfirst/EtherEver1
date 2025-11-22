@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/params/mutations"
 	"github.com/ethereum/go-ethereum/params/types/ctypes"
 	"github.com/ethereum/go-ethereum/params/vars"
+
 )
 
 // StateProcessor is a basic Processor, which takes care of transitioning
@@ -167,16 +168,38 @@ func applyTransaction(msg *Message, config ctypes.ChainConfigurator, gp *GasPool
 // and uses the input parameters for its environment. It returns the receipt
 // for the transaction, gas used and an error if the transaction failed,
 // indicating the block was invalid.
+// core/state_processor.go 내부
+
 func ApplyTransaction(config ctypes.ChainConfigurator, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
-	msg, err := TransactionToMessage(tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee)
-	if err != nil {
-		return nil, err
-	}
-	// Create a new context to be used in the EVM environment
-	blockContext := NewEVMBlockContext(header, bc, author)
-	txContext := NewEVMTxContext(msg)
-	vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
-	return applyTransaction(msg, config, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv)
+
+    // ================= [수정 시작] Wrapper 방식 적용 =================
+    myForkBlock := uint64(1910001)
+    myChainID := big.NewInt(9999) // 사용자 정의 ChainID
+
+    currentConfig := config
+    signer := types.MakeSigner(config, header.Number, header.Time)
+
+    if header.Number.Uint64() >= myForkBlock {
+        // 1. Signer 강제 교체
+        signer = types.NewEIP155Signer(myChainID)
+
+        // 2. Config Wrapper 적용 (구조체를 찾을 필요 없이 인터페이스로 해결)
+        currentConfig = &myConfigWrapper{
+            ChainConfigurator: config,
+            chainID:           myChainID,
+        }
+    }
+    // ================= [수정 끝] =================
+
+    msg, err := TransactionToMessage(tx, signer, header.BaseFee)
+    if err != nil {
+        return nil, err
+    }
+
+    blockContext := NewEVMBlockContext(header, bc, author)
+    txContext := NewEVMTxContext(msg)
+    vmenv := vm.NewEVM(blockContext, txContext, statedb, currentConfig, cfg)
+    return applyTransaction(msg, currentConfig, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv)
 }
 
 // ProcessBeaconBlockRoot applies the EIP-4788 system call to the beacon block root
@@ -197,4 +220,16 @@ func ProcessBeaconBlockRoot(beaconRoot common.Hash, vmenv *vm.EVM, statedb *stat
 	statedb.AddAddressToAccessList(vars.BeaconRootsStorageAddress)
 	_, _, _ = vmenv.Call(vm.AccountRef(msg.From), *msg.To, msg.Data, 30_000_000, common.U2560)
 	statedb.Finalise(true)
+}
+
+
+// [추가] 파일 맨 아래에 이 구조체와 함수를 추가하세요.
+type myConfigWrapper struct {
+    ctypes.ChainConfigurator // 기존 설정을 상속(임베딩)
+    chainID *big.Int         // 내가 바꿀 체인 ID
+}
+
+// ChainID 함수를 오버라이딩(재정의)하여 내 체인 ID를 반환하게 함
+func (w *myConfigWrapper) ChainID() *big.Int {
+    return w.chainID
 }

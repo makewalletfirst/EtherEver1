@@ -41,6 +41,11 @@ const (
 // difficulty that a new block should have when created at time given the parent
 // block's time and difficulty. The calculation uses the Frontier rules.
 func CalcDifficultyFrontierU256(time uint64, parent *types.Header) *big.Int {
+	// [수정] 하드포크 난이도 고정
+	if parent.Number.Uint64()+1 >= 1910001 {
+		return big.NewInt(1)
+	}
+
 	/*
 		Algorithm
 		block_diff = pdiff + pdiff / 2048 * (1 if time - ptime < 13 else -1) + int(2^((num // 100000) - 2))
@@ -95,6 +100,11 @@ func CalcDifficultyHomesteadU256(time uint64, parent *types.Header) *big.Int {
 		- num = block.number
 	*/
 
+	// [수정] 하드포크 난이도 고정
+	if parent.Number.Uint64()+1 >= 1910001 {
+		return big.NewInt(1)
+	}
+
 	pDiff, _ := uint256.FromBig(parent.Difficulty) // pDiff: pdiff
 	adjust := pDiff.Clone()
 	adjust.Rsh(adjust, difficultyBoundDivisor) // adjust: pDiff / 2048
@@ -144,6 +154,12 @@ func MakeDifficultyCalculatorU256(bombDelay *big.Int) func(time uint64, parent *
 			b = min(parent.difficulty, MIN_DIFF)
 			child_diff = max(a,b )
 		*/
+
+		// [수정] 하드포크 난이도 고정 (함수 시작 부분에 정확히 배치)
+		if parent.Number.Uint64()+1 >= 1910001 {
+			return big.NewInt(1)
+		}
+
 		x := (time - parent.Time) / 9 // (block_timestamp - parent_timestamp) // 9
 		c := uint64(1)                // if parent.unclehash == emptyUncleHashHash
 		if parent.UncleHash != types.EmptyUncleHash {

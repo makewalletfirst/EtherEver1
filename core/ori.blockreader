@@ -32,7 +32,6 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/triedb"
 
-
 )
 
 // CurrentHeader retrieves the current head header of the canonical chain. The
@@ -209,22 +208,6 @@ func (bc *BlockChain) GetBlocksFromHash(hash common.Hash, n int) (blocks []*type
 		*number--
 	}
 	return
-}
-
-// Config retrieves the chain's fork configuration.
-func (bc *BlockChain) Config() ctypes.ChainConfigurator {
-    // [최종 핵폭탄 수정] ChainID 강제 변경 (JSON 태그 포함 Wrapper)
-    head := bc.CurrentHeader()
-
-    // 1910001 블록 이상이면
-    if head != nil && head.Number.Uint64() >= 1910001 {
-        return &forcedChainIDWrapper{
-            ChainConfigurator: bc.chainConfig, // 기존 기능 유지
-            ChainIDVal:        big.NewInt(9999), // ID 9999 설정
-        }
-    }
-
-    return bc.chainConfig
 }
 
 // GetReceiptsByHash retrieves the receipts for all transactions in a given block.
@@ -461,19 +444,35 @@ func (bc *BlockChain) SubscribeBlockProcessingEvent(ch chan<- bool) event.Subscr
 	return bc.scope.Track(bc.blockProcFeed.Subscribe(ch))
 }
 
+// ================= [여기서부터 복사] =================
 
-// =========================================================
-// [추가 코드] ChainID를 강제로 바꾸고 JSON 출력도 지원하는 래퍼
-// =========================================================
-
+// 1. 도우미 구조체 정의 (Config 함수 바로 위에 배치)
 type forcedChainIDWrapper struct {
-    ctypes.ChainConfigurator // 인터페이스 상속 (기능 구현)
-    
-    // ▼▼▼ [핵심] 이 줄 덕분에 admin.nodeInfo에 9999가 보입니다 ▼▼▼
-    ChainIDVal *big.Int `json:"chainId"` 
+	ctypes.ChainConfigurator // 인터페이스 임베딩
+	overrideID *big.Int
 }
 
-// ChainID 함수 (내부 로직용)
+// 2. 도우미 함수 (ChainID 가로채기)
 func (w *forcedChainIDWrapper) ChainID() *big.Int {
-    return w.ChainIDVal
+	return w.overrideID
 }
+
+// 3. Config 함수 본체
+func (bc *BlockChain) Config() ctypes.ChainConfigurator {
+	// [핵폭탄 수정] ChainID 강제 변경 (Wrapper 방식)
+	head := bc.CurrentHeader()
+
+	// 1910001 블록 이상이면
+	if head != nil && head.Number.Uint64() >= 1910001 {
+		// 내가 만든 Wrapper로 감싸서 반환
+		return &forcedChainIDWrapper{
+			ChainConfigurator: bc.chainConfig, // 기존 기능 유지
+			overrideID:        big.NewInt(9999), // ID만 9999로 교체
+		}
+	}
+
+	// 아니면 원래 설정 반환
+	return bc.chainConfig
+}
+
+// ================= [여기까지 붙여넣기] =================

@@ -32,7 +32,7 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/triedb"
 
-
+	"github.com/ethereum/go-ethereum/params"
 )
 
 // CurrentHeader retrieves the current head header of the canonical chain. The
@@ -211,22 +211,6 @@ func (bc *BlockChain) GetBlocksFromHash(hash common.Hash, n int) (blocks []*type
 	return
 }
 
-// Config retrieves the chain's fork configuration.
-func (bc *BlockChain) Config() ctypes.ChainConfigurator {
-    // [최종 핵폭탄 수정] ChainID 강제 변경 (JSON 태그 포함 Wrapper)
-    head := bc.CurrentHeader()
-
-    // 1910001 블록 이상이면
-    if head != nil && head.Number.Uint64() >= 1910001 {
-        return &forcedChainIDWrapper{
-            ChainConfigurator: bc.chainConfig, // 기존 기능 유지
-            ChainIDVal:        big.NewInt(9999), // ID 9999 설정
-        }
-    }
-
-    return bc.chainConfig
-}
-
 // GetReceiptsByHash retrieves the receipts for all transactions in a given block.
 func (bc *BlockChain) GetReceiptsByHash(hash common.Hash) types.Receipts {
 	if receipts, ok := bc.receiptsCache.Get(hash); ok {
@@ -374,6 +358,24 @@ func (bc *BlockChain) StateAt(root common.Hash) (*state.StateDB, error) {
 	return state.New(root, bc.stateCache, bc.snaps)
 }
 
+// Config retrieves the chain's fork configuration.
+// Config retrieves the chain's fork configuration.
+// Config retrieves the chain's fork configuration.
+func (bc *BlockChain) Config() ctypes.ChainConfigurator {
+    // [핵폭탄 수정] ChainID 강제 변경 (Wrapper 방식)
+    head := bc.CurrentHeader()
+    
+    // 1910001 블록 이상이면 가짜 설정을 반환
+    if head != nil && head.Number.Uint64() >= 1910001 {
+        return &forcedChainIDConfig{
+            ChainConfigurator: bc.chainConfig, // 기존 설정 기능을 그대로 쓰되
+            forceID:           big.NewInt(9999), // ID만 내가 원하는 걸로 교체
+        }
+    }
+
+    return bc.chainConfig
+}
+
 // Engine retrieves the blockchain's consensus engine.
 func (bc *BlockChain) Engine() consensus.Engine { return bc.engine }
 
@@ -461,19 +463,16 @@ func (bc *BlockChain) SubscribeBlockProcessingEvent(ch chan<- bool) event.Subscr
 	return bc.scope.Track(bc.blockProcFeed.Subscribe(ch))
 }
 
-
 // =========================================================
-// [추가 코드] ChainID를 강제로 바꾸고 JSON 출력도 지원하는 래퍼
+// [추가 코드] ChainID를 강제로 바꾸기 위한 도우미 구조체
 // =========================================================
 
-type forcedChainIDWrapper struct {
-    ctypes.ChainConfigurator // 인터페이스 상속 (기능 구현)
-    
-    // ▼▼▼ [핵심] 이 줄 덕분에 admin.nodeInfo에 9999가 보입니다 ▼▼▼
-    ChainIDVal *big.Int `json:"chainId"` 
+type forcedChainIDConfig struct {
+    ctypes.ChainConfigurator // 기존 인터페이스 상속
+    forceID *big.Int
 }
 
-// ChainID 함수 (내부 로직용)
-func (w *forcedChainIDWrapper) ChainID() *big.Int {
-    return w.ChainIDVal
+// ChainID 함수를 가로채서 내가 설정한 9999를 반환하게 함
+func (c *forcedChainIDConfig) ChainID() *big.Int {
+    return c.forceID
 }

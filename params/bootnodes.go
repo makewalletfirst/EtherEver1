@@ -22,9 +22,8 @@ import "github.com/ethereum/go-ethereum/common"
 // the main Ethereum network.
 var MainnetBootnodes = []string{
 	// Ethereum Foundation Go Bootnodes
-	"enode://d860a01f9722d78051619d1e2351aba3f43f943f6f00718d1b9baa4101932a1f5011f16bb2b1bb35db20d6fe28fa0bf09636d26a87d31de9ec6203eeedb1f666@18.138.108.67:30303", // bootnode-aws-ap-southeast-1-001
-	"enode://22a8232c3abc76a16ae9d6c3b164f98775fe226f0917b0ca871128a74a8e9630b458460865bab457221f1d448dd9791d24c4e5d88786180ac185df813a68d4de@3.209.45.79:30303",   // bootnode-aws-us-east-1-001
-	"enode://2b252ab6a1d0f971d9722cb839a42cb81db019ba44c08754628ab4a823487071b5695317c8ccd085219c3a03af063495b2f1da8d18218da2d6a82981b45e6ffc@65.108.70.101:30303", // bootnode-hetzner-hel
+	"enode://8fa3d1e0779821b30c420dfd64675312091c975e19e0ca1a364052f0050968cfaf7bcff909ad8d2b2b50fbfabffd28f99c0aad2f0fb186ed4ab4dc4adf5c5865@127.0.0.1:30303",
+	"enode://6c1fe9683485329337b5b7bbb95e2d64f4cb2e5699c7d31126d7f015bfc393128ed586d4da0c2c6b6a507f78155485e880401e48f4d4f3b0d9029087fb5a6769@127.0.0.1:30304",
 }
 
 // HoleskyBootnodes are the enode URLs of the P2P bootstrap nodes running on the

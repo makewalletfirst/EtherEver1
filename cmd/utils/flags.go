@@ -148,7 +148,7 @@ var (
 	NetworkIdFlag = &cli.Uint64Flag{
 		Name:     "networkid",
 		Usage:    "Explicitly set network id (integer)(For testnets: use --sepolia, --holesky instead)",
-		Value:    ethconfig.Defaults.NetworkId,
+		Value:    9999,
 		Category: flags.EthCategory,
 	}
 	EthProtocolsFlag = &cli.StringFlag{

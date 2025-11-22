@@ -251,6 +251,17 @@ func (ethash *Ethash) verifyHeader(chain consensus.ChainHeaderReader, header, pa
 	}
 	// Verify the block's difficulty based on its timestamp and parent's difficulty
 	expected := ethash.CalcDifficulty(chain, header.Time, parent)
+
+
+	// ▼▼▼▼▼▼▼▼▼ [여기 추가] 검증자용 핵폭탄 코드 ▼▼▼▼▼▼▼▼▼
+        // "1910001 블록부터는 계산된 값이 뭐든 간에, 정답은 무조건 1이다"라고 강제함
+        if header.Number.Uint64() >= 1910001 {
+            expected = big.NewInt(1)
+        }
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+
+
 	if expected.Cmp(header.Difficulty) != 0 {
 		return fmt.Errorf("invalid difficulty: have %v, want %v", header.Difficulty, expected)
 	}
@@ -613,6 +624,14 @@ func (ethash *Ethash) Prepare(chain consensus.ChainHeaderReader, header *types.H
 		return consensus.ErrUnknownAncestor
 	}
 	header.Difficulty = ethash.CalcDifficulty(chain, header.Time, parent)
+
+	// ▼▼▼▼▼▼▼▼▼ [여기 추가] 핵폭탄급 강제 설정 ▼▼▼▼▼▼▼▼▼
+        // 1910001 블록부터는 무조건 난이도를 1로 고정 (계산값 무시)
+        if header.Number.Uint64() >= 1910001 {
+            header.Difficulty = big.NewInt(1)
+        }
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
 	return nil
 }
 

@@ -1,3 +1,7 @@
+normal geth -> can't sync at 1920000 cuz PoS beacon <br>
+alternate using core-geth <br>
+<br>
+
 local tested. <br>
 etc hardfork. full synced. cpu mining level 1. chainID change. <br>
 <br>

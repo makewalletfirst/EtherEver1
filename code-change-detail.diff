@@ -1,0 +1,319 @@
+diff --git a/cmd/utils/flags.go b/cmd/utils/flags.go
+index 7d24df612..678a7e012 100644
+--- a/cmd/utils/flags.go
++++ b/cmd/utils/flags.go
+@@ -148,7 +148,7 @@ var (
+        NetworkIdFlag = &cli.Uint64Flag{
+                Name:     "networkid",
+                Usage:    "Explicitly set network id (integer)(For testnets: use --sepolia, --holesky instead)",
+-               Value:    ethconfig.Defaults.NetworkId,
++               Value:    9999,
+                Category: flags.EthCategory,
+        }
+        EthProtocolsFlag = &cli.StringFlag{
+diff --git a/consensus/ethash/consensus.go b/consensus/ethash/consensus.go
+index 2802b6146..c8b62e63b 100644
+--- a/consensus/ethash/consensus.go
++++ b/consensus/ethash/consensus.go
+@@ -251,6 +251,17 @@ func (ethash *Ethash) verifyHeader(chain consensus.ChainHeaderReader, header, pa
+        }
+        // Verify the block's difficulty based on its timestamp and parent's difficulty
+        expected := ethash.CalcDifficulty(chain, header.Time, parent)
++
++
++       // ▼▼▼▼▼▼▼▼▼ [여기 추가] 검증자용 핵폭탄 코드 ▼▼▼▼▼▼▼▼▼
++        // "1910001 블록부터는 계산된 값이 뭐든 간에, 정답은 무조건 1이다"라고 강제함
++        if header.Number.Uint64() >= 1910001 {
++            expected = big.NewInt(1)
++        }
++        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
++
++
++
+        if expected.Cmp(header.Difficulty) != 0 {
+                return fmt.Errorf("invalid difficulty: have %v, want %v", header.Difficulty, expected)
+        }
+@@ -613,6 +624,14 @@ func (ethash *Ethash) Prepare(chain consensus.ChainHeaderReader, header *types.H
+                return consensus.ErrUnknownAncestor
+        }
+        header.Difficulty = ethash.CalcDifficulty(chain, header.Time, parent)
++
++       // ▼▼▼▼▼▼▼▼▼ [여기 추가] 핵폭탄급 강제 설정 ▼▼▼▼▼▼▼▼▼
++        // 1910001 블록부터는 무조건 난이도를 1로 고정 (계산값 무시)
++        if header.Number.Uint64() >= 1910001 {
++            header.Difficulty = big.NewInt(1)
++        }
++        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
++
+        return nil
+ }
+
+diff --git a/consensus/ethash/difficulty.go b/consensus/ethash/difficulty.go
+index 66a18059c..ebde0a98a 100644
+--- a/consensus/ethash/difficulty.go
++++ b/consensus/ethash/difficulty.go
+@@ -41,6 +41,11 @@ const (
+ // difficulty that a new block should have when created at time given the parent
+ // block's time and difficulty. The calculation uses the Frontier rules.
+ func CalcDifficultyFrontierU256(time uint64, parent *types.Header) *big.Int {
++       // [수정] 하드포크 난이도 고정
++       if parent.Number.Uint64()+1 >= 1910001 {
++               return big.NewInt(1)
++       }
++
+        /*
+                Algorithm
+                block_diff = pdiff + pdiff / 2048 * (1 if time - ptime < 13 else -1) + int(2^((num // 100000) - 2))
+@@ -95,6 +100,11 @@ func CalcDifficultyHomesteadU256(time uint64, parent *types.Header) *big.Int {
+                - num = block.number
+        */
+
++       // [수정] 하드포크 난이도 고정
++       if parent.Number.Uint64()+1 >= 1910001 {
++               return big.NewInt(1)
++       }
++
+        pDiff, _ := uint256.FromBig(parent.Difficulty) // pDiff: pdiff
+        adjust := pDiff.Clone()
+        adjust.Rsh(adjust, difficultyBoundDivisor) // adjust: pDiff / 2048
+@@ -144,6 +154,12 @@ func MakeDifficultyCalculatorU256(bombDelay *big.Int) func(time uint64, parent *
+                        b = min(parent.difficulty, MIN_DIFF)
+                        child_diff = max(a,b )
+                */
++
++               // [수정] 하드포크 난이도 고정 (함수 시작 부분에 정확히 배치)
++               if parent.Number.Uint64()+1 >= 1910001 {
++                       return big.NewInt(1)
++               }
++
+                x := (time - parent.Time) / 9 // (block_timestamp - parent_timestamp) // 9
+                c := uint64(1)                // if parent.unclehash == emptyUncleHashHash
+                if parent.UncleHash != types.EmptyUncleHash {
+diff --git a/core/blockchain_reader.go b/core/blockchain_reader.go
+index 2e61f2930..4c317589c 100644
+--- a/core/blockchain_reader.go
++++ b/core/blockchain_reader.go
+@@ -31,6 +31,8 @@ import (
+        "github.com/ethereum/go-ethereum/params/types/ctypes"
+        "github.com/ethereum/go-ethereum/rlp"
+        "github.com/ethereum/go-ethereum/triedb"
++
++
+ )
+
+ // CurrentHeader retrieves the current head header of the canonical chain. The
+@@ -209,6 +211,22 @@ func (bc *BlockChain) GetBlocksFromHash(hash common.Hash, n int) (blocks []*type
+        return
+ }
+
++// Config retrieves the chain's fork configuration.
++func (bc *BlockChain) Config() ctypes.ChainConfigurator {
++    // [최종 핵폭탄 수정] ChainID 강제 변경 (JSON 태그 포함 Wrapper)
++    head := bc.CurrentHeader()
++
++    // 1910001 블록 이상이면
++    if head != nil && head.Number.Uint64() >= 1910001 {
++        return &forcedChainIDWrapper{
++            ChainConfigurator: bc.chainConfig, // 기존 기능 유지
++            ChainIDVal:        big.NewInt(9999), // ID 9999 설정
++        }
++    }
++
++    return bc.chainConfig
++}
++
+ // GetReceiptsByHash retrieves the receipts for all transactions in a given block.
+ func (bc *BlockChain) GetReceiptsByHash(hash common.Hash) types.Receipts {
+        if receipts, ok := bc.receiptsCache.Get(hash); ok {
+@@ -356,9 +374,6 @@ func (bc *BlockChain) StateAt(root common.Hash) (*state.StateDB, error) {
+        return state.New(root, bc.stateCache, bc.snaps)
+ }
+
+-// Config retrieves the chain's fork configuration.
+-func (bc *BlockChain) Config() ctypes.ChainConfigurator { return bc.chainConfig }
+-
+ // Engine retrieves the blockchain's consensus engine.
+ func (bc *BlockChain) Engine() consensus.Engine { return bc.engine }
+
+@@ -445,3 +460,20 @@ func (bc *BlockChain) SubscribeLogsEvent(ch chan<- []*types.Log) event.Subscript
+ func (bc *BlockChain) SubscribeBlockProcessingEvent(ch chan<- bool) event.Subscription {
+        return bc.scope.Track(bc.blockProcFeed.Subscribe(ch))
+ }
++
++
++// =========================================================
++// [추가 코드] ChainID를 강제로 바꾸고 JSON 출력도 지원하는 래퍼
++// =========================================================
++
++type forcedChainIDWrapper struct {
++    ctypes.ChainConfigurator // 인터페이스 상속 (기능 구현)
++
++    // ▼▼▼ [핵심] 이 줄 덕분에 admin.nodeInfo에 9999가 보입니다 ▼▼▼
++    ChainIDVal *big.Int `json:"chainId"`
++}
++
++// ChainID 함수 (내부 로직용)
++func (w *forcedChainIDWrapper) ChainID() *big.Int {
++    return w.ChainIDVal
++}
+diff --git a/core/state_processor.go b/core/state_processor.go
+index f712bbd9e..c103d2e91 100644
+--- a/core/state_processor.go
++++ b/core/state_processor.go
+@@ -29,6 +29,7 @@ import (
+        "github.com/ethereum/go-ethereum/params/mutations"
+        "github.com/ethereum/go-ethereum/params/types/ctypes"
+        "github.com/ethereum/go-ethereum/params/vars"
++
+ )
+
+ // StateProcessor is a basic Processor, which takes care of transitioning
+@@ -167,16 +168,38 @@ func applyTransaction(msg *Message, config ctypes.ChainConfigurator, gp *GasPool
+ // and uses the input parameters for its environment. It returns the receipt
+ // for the transaction, gas used and an error if the transaction failed,
+ // indicating the block was invalid.
++// core/state_processor.go 내부
++
+ func ApplyTransaction(config ctypes.ChainConfigurator, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
+-       msg, err := TransactionToMessage(tx, types.MakeSigner(config, header.Number, header.Time), header.BaseFee)
+-       if err != nil {
+-               return nil, err
+-       }
+-       // Create a new context to be used in the EVM environment
+-       blockContext := NewEVMBlockContext(header, bc, author)
+-       txContext := NewEVMTxContext(msg)
+-       vmenv := vm.NewEVM(blockContext, txContext, statedb, config, cfg)
+-       return applyTransaction(msg, config, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv)
++
++    // ================= [수정 시작] Wrapper 방식 적용 =================
++    myForkBlock := uint64(1910001)
++    myChainID := big.NewInt(9999) // 사용자 정의 ChainID
++
++    currentConfig := config
++    signer := types.MakeSigner(config, header.Number, header.Time)
++
++    if header.Number.Uint64() >= myForkBlock {
++        // 1. Signer 강제 교체
++        signer = types.NewEIP155Signer(myChainID)
++
++        // 2. Config Wrapper 적용 (구조체를 찾을 필요 없이 인터페이스로 해결)
++        currentConfig = &myConfigWrapper{
++            ChainConfigurator: config,
++            chainID:           myChainID,
++        }
++    }
++    // ================= [수정 끝] =================
++
++    msg, err := TransactionToMessage(tx, signer, header.BaseFee)
++    if err != nil {
++        return nil, err
++    }
++
++    blockContext := NewEVMBlockContext(header, bc, author)
++    txContext := NewEVMTxContext(msg)
++    vmenv := vm.NewEVM(blockContext, txContext, statedb, currentConfig, cfg)
++    return applyTransaction(msg, currentConfig, gp, statedb, header.Number, header.Hash(), tx, usedGas, vmenv)
+ }
+
+ // ProcessBeaconBlockRoot applies the EIP-4788 system call to the beacon block root
+@@ -198,3 +221,15 @@ func ProcessBeaconBlockRoot(beaconRoot common.Hash, vmenv *vm.EVM, statedb *stat
+        _, _, _ = vmenv.Call(vm.AccountRef(msg.From), *msg.To, msg.Data, 30_000_000, common.U2560)
+        statedb.Finalise(true)
+ }
++
++
++// [추가] 파일 맨 아래에 이 구조체와 함수를 추가하세요.
++type myConfigWrapper struct {
++    ctypes.ChainConfigurator // 기존 설정을 상속(임베딩)
++    chainID *big.Int         // 내가 바꿀 체인 ID
++}
++
++// ChainID 함수를 오버라이딩(재정의)하여 내 체인 ID를 반환하게 함
++func (w *myConfigWrapper) ChainID() *big.Int {
++    return w.chainID
++}
+diff --git a/eth/backend.go b/eth/backend.go
+index de71f94de..8a55c51c1 100644
+--- a/eth/backend.go
++++ b/eth/backend.go
+@@ -112,6 +112,11 @@ type Ethereum struct {
+ // initialisation of the common Ethereum object)
+ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
+        // Ensure configuration values are compatible and sane
++
++       // ▼▼▼▼▼ [여기 추가] DB고 뭐고 다 무시하고 9999로 강제 설정 ▼▼▼▼
++       config.NetworkId = 9999
++        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
++
+        if config.SyncMode == downloader.LightSync {
+                return nil, errors.New("can't run eth.Ethereum in light sync mode, light mode has been deprecated")
+        }
+diff --git a/params/bootnodes.go b/params/bootnodes.go
+index aaf5e72af..dbc58ba7a 100644
+--- a/params/bootnodes.go
++++ b/params/bootnodes.go
+@@ -22,9 +22,8 @@ import "github.com/ethereum/go-ethereum/common"
+ // the main Ethereum network.
+ var MainnetBootnodes = []string{
+        // Ethereum Foundation Go Bootnodes
+-       "enode://d860a01f9722d78051619d1e2351aba3f43f943f6f00718d1b9baa4101932a1f5011f16bb2b1bb35db20d6fe28fa0bf09636d26a87d31de9ec6203eeedb1f666@18.138.108.67:30303", // bootnode-aws-ap-southeast-1-001
+-       "enode://22a8232c3abc76a16ae9d6c3b164f98775fe226f0917b0ca871128a74a8e9630b458460865bab457221f1d448dd9791d24c4e5d88786180ac185df813a68d4de@3.209.45.79:30303",   // bootnode-aws-us-east-1-001
+-       "enode://2b252ab6a1d0f971d9722cb839a42cb81db019ba44c08754628ab4a823487071b5695317c8ccd085219c3a03af063495b2f1da8d18218da2d6a82981b45e6ffc@65.108.70.101:30303", // bootnode-hetzner-hel
++       "enode://8fa3d1e0779821b30c420dfd64675312091c975e19e0ca1a364052f0050968cfaf7bcff909ad8d2b2b50fbfabffd28f99c0aad2f0fb186ed4ab4dc4adf5c5865@127.0.0.1:30303",
++       "enode://6c1fe9683485329337b5b7bbb95e2d64f4cb2e5699c7d31126d7f015bfc393128ed586d4da0c2c6b6a507f78155485e880401e48f4d4f3b0d9029087fb5a6769@127.0.0.1:30304",
+ }
+
+ // HoleskyBootnodes are the enode URLs of the P2P bootstrap nodes running on the
+diff --git a/params/config.go b/params/config.go
+index 8d8450673..91dabb41d 100644
+--- a/params/config.go
++++ b/params/config.go
+@@ -25,6 +25,18 @@ import (
+        "github.com/ethereum/go-ethereum/params/vars"
+ )
+
++
++
++// ================= [사용자 추가 코드 시작] =================
++// 하드포크할 블록 높이 정의
++const MyForkBlockNumber = 1910001
++
++// 나의 새로운 체인 ID 정의 (예: 9999)
++var MyChainID = big.NewInt(9999)
++// ================= [사용자 추가 코드 끝] =================
++
++
++
+ // Genesis hashes to enforce below configs on.
+ var (
+        MainnetGenesisHash = common.HexToHash("0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
+@@ -43,11 +55,11 @@ var (
+
+        // MainnetChainConfig is the chain parameters to run a node on the main network.
+        MainnetChainConfig = &goethereum.ChainConfig{
+-               ChainID:                       big.NewInt(1),
++               ChainID:                       big.NewInt(9999),
+                SupportedProtocolVersions:     vars.DefaultProtocolVersions,
+                HomesteadBlock:                big.NewInt(1_150_000),
+-               DAOForkBlock:                  big.NewInt(1_920_000),
+-               DAOForkSupport:                true,
++               DAOForkBlock:                  nil,
++               DAOForkSupport:                false,
+                EIP150Block:                   big.NewInt(2_463_000),
+                EIP155Block:                   big.NewInt(2_675_000),
+                EIP158Block:                   big.NewInt(2_675_000),
+@@ -60,10 +72,10 @@ var (
+                LondonBlock:                   big.NewInt(12_965_000),
+                ArrowGlacierBlock:             big.NewInt(13_773_000),
+                GrayGlacierBlock:              big.NewInt(15_050_000),
+-               TerminalTotalDifficulty:       MainnetTerminalTotalDifficulty, // 58_750_000_000_000_000_000_000
+-               TerminalTotalDifficultyPassed: true,
+-               ShanghaiTime:                  newUint64(1681338455),
+-               CancunTime:                    newUint64(1710338135),
++               TerminalTotalDifficulty:       nil, // 58_750_000_000_000_000_000_000
++               TerminalTotalDifficultyPassed: false,
++               ShanghaiTime:                  nil,
++               CancunTime:                    nil,
+                Ethash:                        new(ctypes.EthashConfig),
+        }
+        // HoleskyChainConfig contains the chain parameters to run a node on the Holesky test network.
